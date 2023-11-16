@@ -1,12 +1,20 @@
 from flask import Flask, request, jsonify
 import requests
 import os 
+import time
 
+SOCKET_ADDR = os.getenv("SOCKET_ADDRESS")
 FORWARDING_ADDRESS = os.getenv("FORWARDING_ADDRESS")
 FORWARD_URL = ""
 app = Flask(__name__)
 
+#FIELDS
+uniqueID = None
 dict = {}
+peers = []
+vectorClock = []
+nextUniqueID = None
+
 
 #FORWARDING FUNCTIONS
 def forwardingGET(key): 
@@ -84,6 +92,65 @@ def mainDELETE(key):
 
 
 #----------------------------------------------------
+
+#VIEW FUNCTIONS
+def addReplica(socketAddress, senderIP): 
+  if socketAddress in peers:
+    return jsonify({"result": "already present"}, 200)
+
+  peers.append(socketAddress)
+  vectorClock.append(0)
+  retry = []
+
+  if senderIP not in peers: 
+    uniqueID = nextUniqueID
+    vectorClock[uniqueID] += 1 
+
+    for replicaIP in peers: 
+      retry = []
+      URL = "http:" + replicaIP + "/" + socketAddress 
+      try: 
+        resp = request.put(URL)
+        status_code = resp.status_code
+        if status_code == 503: 
+          retry.append(replicaIP)
+      except: 
+        continue
+
+  while(retry): 
+    time.sleep(1)
+    for replicaIP in retry: 
+      URL = "http:" + replicaIP + "/" + socketAddress
+      try: 
+        resp = request.put(URL)
+        status_code = resp.status_code
+        if status_code == 200 or status_code == 201: 
+          retry.remove(replicaIP)
+      except: 
+        continue
+      
+  nextUniqueID += 1 
+
+
+def deleteReplica(socketAddress, senderIP): 
+  if socketAddress == SOCKET_ADDR: 
+    peers = []
+    vectorClock = []
+    return jsonify({"result": "deleted"}, 200)
+  if socketAddress not in peers: 
+    return jsonify({"error": "view has no such replica"}, 404)
+  if senderIP not in peers: 
+    for replicaIP in peers: 
+      URL = "http://" + replicaIP + "/" + socketAddress
+      try: 
+        res = requests.delete(URL, timeout=3)
+      except: 
+        continue 
+  return jsonify({}, 200)
+
+def getReplicas(): 
+  return jsonify({"view": peers}, 200)
+
 handleGET, handlePUT, handleDELETE = None, None, None 
 instanceIP = None
 
@@ -111,6 +178,16 @@ def key(key):
     return handleDELETE(key)
   else: 
     return "Method Not Allowed", 405
+
+@app.route('/view/<ip>', methods=['GET', 'PUT', 'DELETE'])
+def key2(ip): 
+  senderIP = request.remote_addr
+  if request.method == 'GET': 
+    return getReplicas()
+  if request.method == 'PUT': 
+    return addReplica(ip, senderIP)
+  if request.method == 'DELETE': 
+    return deleteReplica(ip, senderIP)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8090)
