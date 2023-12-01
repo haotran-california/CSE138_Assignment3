@@ -105,41 +105,9 @@ def putView():
 def deleteView():
   return
 
-def view():
-  print("In view")
-  client_ip = request.remote_addr
-  method = request.method
-  print("method:", method, "client_ip:", client_ip)
-
-  # Returns the list of peers
-  if method == 'GET':
-    return jsonify(peers), 200
-
-  # Puts a replica into the system
-  elif method == 'PUT':
-    try:
-      data = request.get_json()
-      socket_address = data.get('socket_address')
-
-      if not socket_address:
-        raise ValueError("Invalid data: 'socket_address' missing")
-            
-      return putView(socket_address, client_ip)
-
-    except Exception as e:
-      print(f"Error: {str(e)}")
-      return jsonify({"error": str(e)}), 400
-
-  elif method == 'DELETE':
-    print('Request is DELETE')
-
-  else:
-    print('UNKNOWN METHOD')
-    
-  return jsonify({"Hello": "from view!"}), 200
 ############### KVS ##############
 #@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
-#def kvs(key):
+'''def kvs(key):
   print("in kvs")
   client_ip = request.remote_addr
   method = request.method
@@ -154,7 +122,7 @@ def view():
   else:
     print('UNKNOWN METHOD')
   
-  return jsonify({"Hello": "from kvs with key " + str(key)}), 200
+  return jsonify({"Hello": "from kvs with key " + str(key)}), 200'''
 
 if __name__ == "__main__":
   app.run(host='0.0.0.0', port=8090)
