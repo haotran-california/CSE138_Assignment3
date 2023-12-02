@@ -1,240 +1,299 @@
 from flask import Flask, request, jsonify
+import os
 import requests
-import os 
-import time
+from time import sleep
+import json
+from typing import Dict, Any
+from colorama import Fore, Back, Style
 
-SOCKET_ADDR = os.getenv("SOCKET_ADDRESS")
 FORWARDING_ADDRESS = os.getenv("FORWARDING_ADDRESS")
 FORWARD_URL = ""
 app = Flask(__name__)
-
-#FIELDS
-uniqueID = None
-dict = {}
+kvs = dict(test1=2, test2=3)
 peers = []
-vectorClock = []
-nextUniqueID = None
+vectorClock = [0]
+uniqueID = 0
+nextUID = 0
 
-def getKey(key, CM): 
-  if CM is not None: 
-    if vectorClock[uniqueID] < CM[uniqueID]: 
-      return jsonify({"error": "Causal dependencies not satisfied; try again later"}, 503)
+green = Fore.GREEN
+blue = Fore.BLUE
+red = Fore.RED
+white = Fore.WHITE
 
-  return mainGET(key, CM)
-
-
-def addKey(key, CM): 
-  return 0 
-
-def deleteKey(key, CM, senderIP): 
-  if CM is None or vectorClock[uniqueID] < CM[uniqueID]: 
-      return jsonify({"error": "Causal dependencies not satisfied; try again later"}, 503)
-
-  if key not in dict: 
-    return 404
-  
-  dict.remove(key)
-  vectorClock[uniqueID] += 1 
-  vectorClock = [max(a1, a2) for a1, a2 in zip(vectorClock, CM)]
-  retry = []
-  if senderIP not in peers: 
-    for replicaID in peers: 
-      URL = "https://" + replicaID + "/kvs/" + key
-      data = {
-        "casual-metadata": CM
-      }
-      try: 
-        resp = request.delete(URL, data)
-        status_code = resp.status_code
-        if status_code == 503: 
-          retry.append(replicaID)
-        elif status_code == 200 or status_code == 201: 
-          vectorClock = [max(a1, a2) for a1, a2 in zip(vectorClock, CM)]
-      except: 
-        continue 
-
-  while(retry): 
-    time.sleep(1)
-    for replicaID in peers: 
-      URL = "https://" + replicaID + "/kvs/" + key
-      data = {
-        "casual-metadata": CM
-      }
-      try: 
-        resp = request.delete()
-        status_code = resp.status_code
-        if status_code == 200 or status_code == 201: 
-          retry.remove(replicaID)
-          vectorClock = [max(a1, a2) for a1, a2 in zip(vectorClock, CM)]
-      except: 
-        continue 
-
-  return mainDELETE(key, CM)
-
-#FORWARDING FUNCTIONS
-def forwardingGET(key): 
-  try: 
-    res = requests.get(FORWARD_URL + "/" + key, timeout=3)
-    content = res.json()
-    status_code = res.status_code
-
-    if status_code == 200 or status_code == 404: 
-      return jsonify(content), status_code
-    else: 
-      return jsonify({"error": "Cannot forward request"}), 503
-  except: 
-    return jsonify({"error": "Cannot forward request"}), 503
-
-#assume key() grabs the value from the body 
-def forwardingPUT(key, value): 
+############### VIEW ##############
+"""
+Sends the following fields to a ip with the method 'INITPACKAGE':
+  senderIP: str
+  uniqueID: str
+  nextUniqueID: str
+  vectorClocK: [int]
+  kvs: dict
+"""
+def sendInit(newReplicaIP: str, nextUniqueId: int, vectorClock: [int], keyStore):
+  print(blue + 'Replica doing sendInit...' + white)
+  print('serialize:', json.dumps(keyStore))
   payload = {
-    "value": value
+    'uniqueID': str(nextUniqueId),
+    'nextUniqueID': str(nextUniqueId + 1),
+    'vectorClock': json.dumps(vectorClock),
+    'keyStore': json.dumps(keyStore),
   }
-  try: 
-    res = requests.put(FORWARD_URL + "/" + key, json=payload, timeout=3)
-    content = res.json()
-    status_code = res.status_code
 
-    if status_code == 200 or status_code == 201 or status_code == 400: 
-      return jsonify(content), status_code
-    else: 
-      return jsonify({"error": "Cannot forward request"}), 503
-  except:  
-    return jsonify({"error": "Cannot forward request"}), 503
+  response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
+  # temporarily make newReplicaIP self ip for testing
+  #response = requests.request('INITPACKAGE', 'http://10.0.0.242:8090/', json=payload)
+  
+  while response.status_code not in [200, 201]:
+    response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
+    sleep(1)
 
+  print(green + 'Replica finished sendInit\n' + white)
+  return
 
-def forwardingDELETE(key): 
-  try: 
-    res = requests.delete(FORWARD_URL + "/" + key, timeout=3)
-    content = res.json()
-    status_code = res.status_code
+"""
+Received the method INITPACKAGE and sets current fields to received values
+"""
+@app.route('/', methods=['INITPACKAGE'])
+def initSelf():
+  print(blue + 'Replica doing INITPACKAGE...' + white)
+  global uniqueID, nextUID, vectorClock, kvs
+  payload = request.get_json()
+  uniqueID = int(payload.get('uniqueID'))
+  nextUID = int(payload.get('nextUniqueID'))
+  vectorClock = json.loads(payload.get('vectorClock'))
+  kvs = json.loads(payload.get('keyStore'))
+  peers.append('http://' + request.remote_addr + ':8090/')
+  print(green + 'Replica finished INITPACKAGE' + white)
+  return jsonify({"result": "success"}), 200
 
-    if status_code == 200 or status_code == 404: 
-      return jsonify(content), status_code
-    else: 
-      return jsonify({"error": "Cannot forward request"}), 503
-  except:
-    return jsonify({"error": "Cannot forward request"}), 503
+"""
+Helper function that prints out global variables
+"""
+def checkglobals():
+  global uniqueID, nextUID, vectorClock, kvs
+  print(blue + "Starting globals check" + white)
+  print("uniqueID:", uniqueID)
+  print("nextUID:", nextUID)
+  print("vectorClock:", vectorClock)
+  print("kvs:", kvs)
+  print(blue + "Globals check finished" + white)
 
-#--------------------------------------------------------------
+"""Returns jsonified peers"""
+@app.route('/view', methods=['GET'])
+def getView():
+  print(green + 'Replica did getView()')
+  return jsonify({"view:": peers}), 200
 
-def mainGET(key, CM): 
-  if key in dict:
-    val = dict[key]
-    return jsonify({"result": "found", "value": val, "causal-metadata": CM}), 200
-  else:
-    return jsonify({"error": "Key does not exist"}), 404
+@app.route('/view', methods=['PUT'])
+def putView():
+  print(blue + "Replica received starting putView()" + white)
+
+  global kvs, nextUID, vectorClock
+  
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  payload = request.get_json()
+  newReplicaIP = payload.get('socket-address')
+
+  if newReplicaIP in peers:
+    print(green + 'Replica finished putView() with 200' + white)
+    return jsonify({"result": "already present"}), 200
+
+  vectorClock.append(0)
+
+  if senderIP not in peers:
+    retry = []
+    # Send initialization package to replica
+    payload = {
+      'uniqueID': str(nextUID),
+      'nextUniqueID': str(nextUID + 1),
+      'vectorClock': str(vectorClock),
+      'keyStore': json.dumps(kvs),
+    }
+    response = requests.request('INITPACKAGE', newReplicaIP, json=payload)
+    while response.status_code != 200:
+      print("NO RESPONSE REPLY AFTER INITPACKAGE RECEIVED")
+      sleep(1)
+      response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
     
-
-def mainPUT(key, value, CM): 
-    if not value: 
-      return jsonify({"error": "PUT request does not specify a value"}), 400
-    if len(key) > 50:
-      return jsonify({"error": "Key is too long"}), 400
-    elif key in dict:
-      dict[key] = value 
-      return jsonify({"result": "replaced",  "causal-metadata": CM}), 200
-    else:
-      dict[key] = value
-      return jsonify({"result": "created", "causal-metadata": CM}), 201
-
-def mainDELETE(key, CM): 
-  if key in dict:
-    del dict[key]
-    return jsonify({"result": "deleted", "causal-metadata": CM}), 200
-  else:
-    return jsonify({"error": "Key does not exist"}), 404
-
-
-#----------------------------------------------------
-
-#VIEW FUNCTIONS
-def addReplica(socketAddress, senderIP): 
-  if (socketAddress in peers) or (socketAddress == SOCKET_ADDR):
-    return jsonify({"result": "already present"}, 200)
-
-  peers.append(socketAddress)
-  retry = []
-
-  if senderIP not in peers: 
-    uniqueID = nextUniqueID
-
-    for replicaIP in peers: 
-      retry = []
-      URL = "http:" + replicaIP + "/views/" + socketAddress 
-      try: 
-        resp = request.put(URL)
-        status_code = resp.status_code
-        if status_code == 503: 
-          retry.append(replicaIP)
-      except: 
-        continue
-
-  while(retry): 
-    time.sleep(1)
-    for replicaIP in retry: 
-      URL = "http:" + replicaIP + "/views/" + socketAddress
-      try: 
-        resp = request.put(URL)
-        status_code = resp.status_code
-        if status_code == 200 or status_code == 201: 
-          retry.remove(replicaIP)
-      except: 
-        continue
+    for peer in peers:
+      response = requests.put(peer, json={'socket-address': senderIP})
+      if response.status_code not in [200, 201]:
+        retry.append(peer)
       
-  nextUniqueID += 1 
-  return jsonify({"result": "added"}, 201)
+    while retry:
+      print(red + "FAILED TO GET REPLY AFTER RETRY" + white)
+      newRetry = []
+      for peer in retry:
+        response = requests.put(peer, newReplicaIP)
+        if response.status_code in [200, 201]:
+          newRetry.append(peer)
+      retry = newRetry
+      sleep(1)
+  
+  peers.append(newReplicaIP)
 
+  print(f"Added peer: {newReplicaIP}")
+  print("Current peers:", peers)
+  print(green + 'Replica finished putView with 201' + white)
+  return jsonify({"message": "Peer added successfully"}), 201
 
-def deleteReplica(socketAddress, senderIP): 
-  if socketAddress == SOCKET_ADDR: 
+@app.route('/view', methods=['DELETE'])
+def deleteView():
+  print(blue + 'Replica starting deleteView()' + white)
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  payload = request.get_json()
+  targetReplicaIP = payload.get('socket-address')
+
+  selfIP = request.url_root
+  if targetReplicaIP == selfIP:
+    print("Received order to remove self")
+    global peers, vectorClock, uniqueID, nextUID, kvs
     peers = []
-    vectorClock = []
-    return jsonify({"result": "deleted"}, 200)
-  if socketAddress not in peers: 
-    return jsonify({"error": "view has no such replica"}, 404)
-  if senderIP not in peers: 
-    for replicaIP in peers: 
-      URL = "http://" + replicaIP + "/views/" + socketAddress
-      try: 
-        res = requests.delete(URL, timeout=3)
-      except: 
-        continue 
-  return jsonify({}, 200)
+    vectorClock = [0]
+    uniqueID = 0
+    nextUID = 1
+    kvs = dict()
+    print(green + 'Replica finished deleteView by removing self with code 200' + white)
+    return jsonify({"message": "Removed self"}), 200
+  
+  if targetReplicaIP not in peers:
+    print(type(targetReplicaIP))
+    print(peers)
+    print(red + 'Replica finished deleteView with 404' + white)
+    return jsonify({"error": "View has no such replica"}), 404
+  
+  if senderIP not in peers:
+    retry = []
+    for peer in peers:
+      response = requests.delete(peer, json=targetReplicaIP)
+      if response.status_code != 200:
+        retry.append(peer)
 
-def getReplicas(): 
-  return jsonify({"view": peers}, 200)
+    while retry:
+      newRetry = []
+      for peer in retry:
+        response = requests.delete(peer, json=targetReplicaIP)
+        if response.status_code != 200:
+          newRetry.append(peer)
+      newRetry = retry
+      sleep(1)
 
+  peers.remove(targetReplicaIP)
 
+  print(green + 'Replica finished deleteView with code 200' + white)
+  return jsonify({"result": "deleted"}), 200
 
-@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE'])
-def key(key):
-  data = request.get_json()
-  causal_metadata = data.get('causal-metadata', None)
-  senderIP = request.remote_addr
+############### KVS ##############
+def maxOutClock(vectorClockA, vectorClockB):
+  if len(vectorClockA) < len(vectorClockB):
+    vectorClockA += [0] * (len(vectorClockB) - len(vectorClockA))
+  elif len(vectorClockB) < len(vectorClockA):
+    vectorClockB += [0] * len(vectorClockB)
+  return max(vectorClockA, vectorClockB)
 
-  if request.method == 'GET':
-    return handleGET(key)
-  elif request.method == 'PUT':
-    value = None
-    data = request.get_json()
-    if data: 
-      value = data['value']
-    return handlePUT(key, value)
-  elif request.method == 'DELETE':
-    return handleDELETE(key)
-  else: 
-    return "Method Not Allowed", 405
+@app.route('/kvs/<key>', methods=['PUT'])
+def putKvs(key: str):
+  print(blue + 'Replica starting putKvs()...' + white)
+  global vectorClock
 
-@app.route('/view/<ip>', methods=['GET', 'PUT', 'DELETE'])
-def key2(ip): 
-  senderIP = request.remote_addr
-  if request.method == 'GET': 
-    return getReplicas()
-  if request.method == 'PUT': 
-    return addReplica(ip, senderIP)
-  if request.method == 'DELETE': 
-    return deleteReplica(ip, senderIP)
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  payload = request.get_json()
+  value = str(payload.get('value'))
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8090)
+  if not value:
+    print(red + 'Replica finished putKvs with 400' + white)
+    return jsonify({"error": "PUT request does not specify a value"}), 400
+  if len(value) > 100:
+    print(red + 'Replica finished putKvs with 400' + white)
+    return jsonify({"error": "Key is too long"}), 400
+
+  casualMetadata  = payload.get('casual-metadata')
+  print("Sender ip:", senderIP)
+  print("Casual metadata:", casualMetadata)
+  print("key:", key)
+
+  # if casualMetadata is not null:
+  if type(casualMetadata) != type(None):
+    print("Casual metadata is not null")
+    # Load casualMetadata as a list
+    casualMetadata = json.loads(casualMetadata)
+    casualMetadata = [1, 2, 3, 4, 5, 6, 7]
+
+    if vectorClock[uniqueID] < casualMetadata[uniqueID]:
+      print(red + 'Replica finished putKvs with 503' + white)
+      return jsonify({"error": "Casual dependencies not satisfied; try again later"}), 503
+  else:
+    print("Casual metadata is null")
+    casualMetadata = [0] * len(vectorClock)
+
+  resultCode = 503
+  if key not in kvs:
+    resultCode = 201
+  else:
+    resultCode = 200
+
+  kvs[key] = value
+  print(vectorClock)
+  print(uniqueID)
+  vectorClock[uniqueID] += 1
+  vectorClock = maxOutClock(vectorClock, casualMetadata)
+
+  if senderIP not in peers:
+    retry = []
+    data = {
+      'value': value,
+      'casual-metadata': json.dumps(vectorClock),
+    }
+
+    for peer in peers:
+      print("PEER:", peer)
+      response = requests.put(peer + 'kvs/' + key, json=data)
+      if response.status_code == 503:
+        retry.append(peer)
+      elif response.status_code in [200, 201]:
+        responsePayload = response.json()
+        responseCM = json.loads(responsePayload['casual-metadata'])
+        vectorClock = maxOutClock(vectorClock, responseCM)
+        
+    while retry:
+      newRetry = []
+      data = {
+        'value': value,
+        'casual-metadata': json.dumps(vectorClock) 
+      }
+      for peer in retry:
+        response = requests.put(peer + 'kvs/' + key, json=data)
+        responsePayload = response.json()
+        responseCM = json.loads(responsePayload['casual-metadata'])
+        if response.status_code not in [200, 201]:
+          newRetry.append(peer)
+          vectorClock = maxOutClock(vectorClock, responseCM)
+      retry = newRetry
+
+  if resultCode == 200:
+    print(green + 'Replica finished putKvs() with 200' + white)
+    return jsonify({'result': 'created', 'casual-metadata': json.dumps(vectorClock)}), 200
+  elif resultCode == 201:
+    print(green + 'Replica finished putKvs() with 201' + white)
+    return jsonify({'result': 'replaced', 'casual-metadata': json.dumps(vectorClock)}), 201
+
+#@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
+'''def kvs(key):"
+  print("in kvs")
+  client_ip = request.remote_addr
+  method = request.method
+  if method == 'GET':
+    print('Request is GET')
+  elif method == 'PUT':
+    print('Request is PUT')
+  elif method == 'DELETE':
+    print('Request is DELETE')
+  elif method == 'CUSTOM':
+    print('CUSTOM METHOD INVOKED')
+  else:
+    print('UNKNOWN METHOD')
+  
+  return jsonify({"Hello": "from kvs with key " + str(key)}), 200'''
+
+if __name__ == "__main__":
+  app.run(host='0.0.0.0', port=8090)
