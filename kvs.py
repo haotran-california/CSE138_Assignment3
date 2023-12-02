@@ -207,24 +207,24 @@ def putKvs(key: str):
     print(red + 'Replica finished putKvs with 400' + white)
     return jsonify({"error": "Key is too long"}), 400
 
-  casualMetadata  = payload.get('casual-metadata')
+  causalMetadata  = payload.get('causal-metadata')
   print("Sender ip:", senderIP)
-  print("Casual metadata:", casualMetadata)
+  print("causal metadata:", causalMetadata)
   print("key:", key)
 
-  # if casualMetadata is not null:
-  if type(casualMetadata) != type(None):
-    print("Casual metadata is not null")
-    # Load casualMetadata as a list
-    casualMetadata = json.loads(casualMetadata)
-    casualMetadata = [1, 2, 3, 4, 5, 6, 7]
+  # if causalMetadata is not null:
+  if type(causalMetadata) != type(None):
+    print("causal metadata is not null")
+    # Load causalMetadata as a list
+    causalMetadata = json.loads(causalMetadata)
+    causalMetadata = [1, 2, 3, 4, 5, 6, 7]
 
-    if vectorClock[uniqueID] < casualMetadata[uniqueID]:
+    if vectorClock[uniqueID] < causalMetadata[uniqueID]:
       print(red + 'Replica finished putKvs with 503' + white)
-      return jsonify({"error": "Casual dependencies not satisfied; try again later"}), 503
+      return jsonify({"error": "causal dependencies not satisfied; try again later"}), 503
   else:
-    print("Casual metadata is null")
-    casualMetadata = [0] * len(vectorClock)
+    print("causal metadata is null")
+    causalMetadata = [0] * len(vectorClock)
 
   resultCode = 503
   if key not in kvs:
@@ -236,13 +236,13 @@ def putKvs(key: str):
   print(vectorClock)
   print(uniqueID)
   vectorClock[uniqueID] += 1
-  vectorClock = maxOutClock(vectorClock, casualMetadata)
+  vectorClock = maxOutClock(vectorClock, causalMetadata)
 
   if senderIP not in peers:
     retry = []
     data = {
       'value': value,
-      'casual-metadata': json.dumps(vectorClock),
+      'causal-metadata': json.dumps(vectorClock),
     }
 
     for peer in peers:
@@ -252,19 +252,19 @@ def putKvs(key: str):
         retry.append(peer)
       elif response.status_code in [200, 201]:
         responsePayload = response.json()
-        responseCM = json.loads(responsePayload['casual-metadata'])
+        responseCM = json.loads(responsePayload['causal-metadata'])
         vectorClock = maxOutClock(vectorClock, responseCM)
         
     while retry:
       newRetry = []
       data = {
         'value': value,
-        'casual-metadata': json.dumps(vectorClock) 
+        'causal-metadata': json.dumps(vectorClock) 
       }
       for peer in retry:
         response = requests.put(peer + 'kvs/' + key, json=data)
         responsePayload = response.json()
-        responseCM = json.loads(responsePayload['casual-metadata'])
+        responseCM = json.loads(responsePayload['causal-metadata'])
         if response.status_code not in [200, 201]:
           newRetry.append(peer)
           vectorClock = maxOutClock(vectorClock, responseCM)
@@ -272,10 +272,10 @@ def putKvs(key: str):
 
   if resultCode == 200:
     print(green + 'Replica finished putKvs() with 200' + white)
-    return jsonify({'result': 'created', 'casual-metadata': json.dumps(vectorClock)}), 200
+    return jsonify({'result': 'created', 'causal-metadata': json.dumps(vectorClock)}), 200
   elif resultCode == 201:
     print(green + 'Replica finished putKvs() with 201' + white)
-    return jsonify({'result': 'replaced', 'casual-metadata': json.dumps(vectorClock)}), 201
+    return jsonify({'result': 'replaced', 'causal-metadata': json.dumps(vectorClock)}), 201
 
 #@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
 '''def kvs(key):"

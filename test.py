@@ -26,11 +26,11 @@ cm = None
 keys = ['apple', 'banana', 'pear']
 values = ['zero', 'one', 'two']
 
-data = {'casual-metadata': cm}
+data = {'causal-metadata': cm}
 print("data: ", data)
 
 for i, key in enumerate(keys):
-  data = {'casual-metadata': cm, 'value': i}
+  data = {'causal-metadata': cm, 'value': i}
   response = requests.put(url + key, json=data)
   print(response)
   print(response.text)
