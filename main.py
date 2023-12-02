@@ -10,7 +10,7 @@ FORWARD_URL = ""
 app = Flask(__name__)
 kvs = dict(test1=2, test2=3)
 peers = []
-vectorClock = []
+vectorClock = [0]
 uniqueID = 0
 nextUID = 0
 
@@ -84,7 +84,7 @@ def putView():
   senderIP = 'http://' + request.remote_addr + ':8090/'
   print("SENDERIP:", senderIP)
   payload = request.get_json()
-  newReplicaIP = payload.get('socket_address')
+  newReplicaIP = payload.get('socket-address')
 
   if newReplicaIP in peers:
     return jsonify({"result": "already present"}), 200
@@ -108,7 +108,7 @@ def putView():
     
     for peer in peers:
       print("SENDER IP:", senderIP)
-      response = requests.put(peer, json={'socket_address': senderIP})
+      response = requests.put(peer, json={'socket-address': senderIP})
       if response.status_code not in [200, 201]:
         retry.append(peer)
       
@@ -132,7 +132,7 @@ def putView():
 def deleteView():
   senderIP = 'http://' + request.remote_addr + ':8090/'
   payload = request.get_json()
-  targetReplicaIP = payload.get('socket_address')
+  targetReplicaIP = payload.get('socket-address')
 
   selfIP = request.url_root
   if targetReplicaIP == selfIP:
@@ -169,8 +169,32 @@ def deleteView():
   return jsonify({"result": "deleted"}), 200
 
 ############### KVS ##############
+@app.route('/kvs/<key>', methods=['PUT'])
+def putKvs(key):
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  payload = request.get_json()
+  key = payload.get('value')
+  casualMetadata  = payload.get('casual-metadata')
+  print("Sender ip:", senderIP)
+  print("Casual metadata:", casualMetadata)
+  print("key:", key)
+
+  if type(casualMetadata) != type(None):
+    print("casualMetadata is not None")
+
+    casualMetadata = json.loads(casualMetadata)
+    print("casualMetadata:", casualMetadata)
+    print("casualMetadata type:", type(casualMetadata))
+    print(vectorClock[uniqueID])
+    print(casualMetadata[uniqueID])
+    if vectorClock[uniqueID] < casualMetadata[uniqueID]:
+      return jsonify({"error": "Casual dependencies not satisfied; try again later"}), 503
+    print("It is of type:", type(casualMetadata))
+    print(casualMetadata)
+
+  return jsonify({'temp key': key}), 200
 #@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
-'''def kvs(key):
+'''def kvs(key):"
   print("in kvs")
   client_ip = request.remote_addr
   method = request.method
