@@ -208,16 +208,12 @@ def putKvs(key: str):
     return jsonify({"error": "Key is too long"}), 400
 
   causalMetadata  = payload.get('causal-metadata')
-  print("Sender ip:", senderIP)
-  print("causal metadata:", causalMetadata)
-  print("key:", key)
 
   # if causalMetadata is not null:
   if type(causalMetadata) != type(None):
     print("causal metadata is not null")
     # Load causalMetadata as a list
     causalMetadata = json.loads(causalMetadata)
-    causalMetadata = [1, 2, 3, 4, 5, 6, 7]
 
     if vectorClock[uniqueID] < causalMetadata[uniqueID]:
       print(red + 'Replica finished putKvs with 503' + white)
@@ -277,23 +273,29 @@ def putKvs(key: str):
     print(green + 'Replica finished putKvs() with 201' + white)
     return jsonify({'result': 'created', 'causal-metadata': json.dumps(vectorClock)}), 201
 
-#@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
-'''def kvs(key):"
-  print("in kvs")
-  client_ip = request.remote_addr
-  method = request.method
-  if method == 'GET':
-    print('Request is GET')
-  elif method == 'PUT':
-    print('Request is PUT')
-  elif method == 'DELETE':
-    print('Request is DELETE')
-  elif method == 'CUSTOM':
-    print('CUSTOM METHOD INVOKED')
-  else:
-    print('UNKNOWN METHOD')
+@app.route('/kvs/<key>', methods=['GET'])
+def getKvs(key: str):
+  print(blue + 'Replica starting getKvs()...' + white)
   
-  return jsonify({"Hello": "from kvs with key " + str(key)}), 200'''
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  payload = request.get_json()
+  causalMetadata = payload.get('causal-metadata')
+  if type(causalMetadata) != type(None):
+    print("causal metadata is not none")
+    causalMetadata = json.loads(causalMetadata)
+
+    if vectorClock[uniqueID] < causalMetadata[uniqueID]:
+      print(red + 'Replica finished getKvs with 503' + white)
+      return jsonify({"error": "causal dependencies not satisfied; try again later"}), 503
+  
+  if key not in kvs:
+    print(red + 'Replica finished getKvs with 404' + white)
+    return jsonify({"error": "Key does not exist"}), 404
+
+  vectorClock[uniqueID] += 1
+
+  print(green + 'Replica finished getKvs with 200')
+  return jsonify({"result": "found", "value": kvs[key], 'causal-metadata': json.dumps(vectorClock)})
 
 if __name__ == "__main__":
   app.run(host='0.0.0.0', port=8090)
