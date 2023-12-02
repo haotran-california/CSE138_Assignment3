@@ -272,10 +272,10 @@ def putKvs(key: str):
 
   if resultCode == 200:
     print(green + 'Replica finished putKvs() with 200' + white)
-    return jsonify({'result': 'created', 'causal-metadata': json.dumps(vectorClock)}), 200
+    return jsonify({'result': 'replaced', 'causal-metadata': json.dumps(vectorClock)}), 200
   elif resultCode == 201:
     print(green + 'Replica finished putKvs() with 201' + white)
-    return jsonify({'result': 'replaced', 'causal-metadata': json.dumps(vectorClock)}), 201
+    return jsonify({'result': 'created', 'causal-metadata': json.dumps(vectorClock)}), 201
 
 #@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
 '''def kvs(key):"
