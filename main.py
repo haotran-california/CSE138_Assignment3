@@ -29,13 +29,13 @@ def sendInit(newReplicaIP: str, nextUniqueId: int, vectorClock: [int], keyStore)
   payload = {
     'uniqueID': str(nextUniqueId),
     'nextUniqueID': str(nextUniqueId + 1),
-    'vectorClock': str(vectorClock),
+    'vectorClock': json.dumps(vectorClock),
     'keyStore': json.dumps(keyStore),
   }
 
-  #response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
+  response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
   # temporarily make newReplicaIP self ip for testing
-  response = requests.request('INITPACKAGE', 'http://10.0.0.242:8090', json=payload)
+  #response = requests.request('INITPACKAGE', 'http://10.0.0.242:8090/', json=payload)
   
   while response.status_code not in [200, 201]:
     response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
@@ -53,8 +53,9 @@ def initSelf():
   payload = request.get_json()
   uniqueID = payload.get('uniqueID')
   nextUID = payload.get('nextUniqueID')
-  vectorClock = payload.get('vectorClock')
+  vectorClock = json.loads(payload.get('vectorClock'))
   kvs = json.loads(payload.get('keyStore'))
+  peers.append('http://' + request.remote_addr + ':8090/')
   checkglobals()
   return jsonify({"result": "success"}), 200
 
@@ -73,29 +74,55 @@ def checkglobals():
 """Returns jsonified peers"""
 @app.route('/view', methods=['GET'])
 def getView():
+  print("SELF IP:", request.url_root)
   return jsonify({"view:": peers}), 200
 
 @app.route('/view', methods=['PUT'])
 def putView():
   global kvs, nextUID, vectorClock
   
-  senderIP = request.remote_addr
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  print("SENDERIP:", senderIP)
   payload = request.get_json()
   newReplicaIP = payload.get('socket_address')
 
   if newReplicaIP in peers:
     return jsonify({"result": "already present"}), 200
-  
-  peers.append(newReplicaIP)
+
   vectorClock.append(0)
-  retry = []
 
   if senderIP not in peers:
+    retry = []
     # Send initialization package to replica
-    #sendInit(senderIP, uniqueID, nextUID, vectorClock, kvs)
-    # for now make senderIP itself
-    sendInit(newReplicaIP, nextUID, vectorClock, kvs)
-
+    payload = {
+      'uniqueID': str(nextUID),
+      'nextUniqueID': str(nextUID + 1),
+      'vectorClock': str(vectorClock),
+      'keyStore': json.dumps(kvs),
+    }
+    response = requests.request('INITPACKAGE', newReplicaIP, json=payload)
+    while response.status_code != 200:
+      print("NO RESPONSE REPLY AFTER INITPACKAGE RECEIVED")
+      sleep(1)
+      response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
+    
+    for peer in peers:
+      print("SENDER IP:", senderIP)
+      response = requests.put(peer, json={'socket_address': senderIP})
+      if response.status_code not in [200, 201]:
+        retry.append(peer)
+      
+    while retry:
+      print("FAILED TO GET REPLY AFTER RETRY", retry)
+      newRetry = []
+      for peer in retry:
+        response = requests.put(peer, newReplicaIP)
+        if response.status_code in [200, 201]:
+          newRetry.append(peer)
+      retry = newRetry
+      sleep(1)
+  
+  peers.append(newReplicaIP)
 
   print(f"Added peer: {newReplicaIP}")
   print("Current peers:", peers)
@@ -103,7 +130,43 @@ def putView():
 
 @app.route('/view', methods=['DELETE'])
 def deleteView():
-  return
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  payload = request.get_json()
+  targetReplicaIP = payload.get('socket_address')
+
+  selfIP = request.url_root
+  if targetReplicaIP == selfIP:
+    print("Received order to remove self")
+    global peers, vectorClock, uniqueID, nextUID, kvs
+    peers = []
+    vectorClock = []
+    uniqueID = 0
+    nextUID = 1
+    kvs = dict()
+    return jsonify({"message": "Removed self"}), 200
+  
+  if targetReplicaIP not in peers:
+    return jsonify({"error": "View has no such replica"}), 404
+  
+  if senderIP not in peers:
+    retry = []
+    for peer in peers:
+      response = requests.delete(peer, json=targetReplicaIP)
+      if response.status_code != 200:
+        retry.append(peer)
+
+    while retry:
+      newRetry = []
+      for peer in retry:
+        response = requests.delete(peer, json=targetReplicaIP)
+        if response.status_code != 200:
+          newRetry.append(peer)
+      newRetry = retry
+      sleep(1)
+
+  peers.remove(targetReplicaIP)
+
+  return jsonify({"result": "deleted"}), 200
 
 ############### KVS ##############
 #@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
