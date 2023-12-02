@@ -217,7 +217,6 @@ def putKvs(key: str):
     print("Casual metadata is not null")
     # Load casualMetadata as a list
     casualMetadata = json.loads(casualMetadata)
-    casualMetadata = [1, 2, 3, 4, 5, 6, 7]
 
     if vectorClock[uniqueID] < casualMetadata[uniqueID]:
       print(red + 'Replica finished putKvs with 503' + white)
@@ -276,6 +275,23 @@ def putKvs(key: str):
   elif resultCode == 201:
     print(green + 'Replica finished putKvs() with 201' + white)
     return jsonify({'result': 'replaced', 'casual-metadata': json.dumps(vectorClock)}), 201
+
+
+@app.route('/kvs/<key>', methods=['GET'])
+def kvsGet(key: str):
+  print(blue + 'Replica starting kvsGet()...' + white)
+  global vectorClock
+  senderIP = 'http://' + request.remote_addr + ':8090/'
+  payload = request.get_json()
+  casualMetadata = payload.get('casual-metadata')
+
+  # if casualMetadata is not null:
+  if type(casualMetadata) != type(None):
+    casualMetadata = json.loads(casualMetadata)
+    if vectorClock[uniqueID] < casualMetadata[uniqueID]:
+      print(red + 'Replica finished kvsGet() with 503' + white)
+      return jsonify({'error': 'Casual dependencies not satisfied; try again later'}), 503
+
 
 #@app.route('/kvs/<key>', methods=['GET', 'PUT', 'DELETE', 'CUSTOM'])
 '''def kvs(key):"
