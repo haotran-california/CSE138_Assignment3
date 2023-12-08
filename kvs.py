@@ -9,11 +9,12 @@ from colorama import Fore, Back, Style
 FORWARDING_ADDRESS = os.getenv("FORWARDING_ADDRESS")
 FORWARD_URL = ""
 app = Flask(__name__)
-kvs = dict(test1=2, test2=3)
+#kvs = dict(test1=2, test2=3)
+kvs = dict()
 peers = []
 vectorClock = [0]
 uniqueID = 0
-nextUID = 0
+nextUID = 1
 
 green = Fore.GREEN
 blue = Fore.BLUE
@@ -109,7 +110,7 @@ def putView():
       'vectorClock': str(vectorClock),
       'keyStore': json.dumps(kvs),
     }
-    response = requests.request('INITPACKAGE', newReplicaIP, json=payload)
+    response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
     while response.status_code != 200:
       print("NO RESPONSE REPLY AFTER INITPACKAGE RECEIVED")
       sleep(1)
@@ -125,7 +126,7 @@ def putView():
       newRetry = []
       for peer in retry:
         response = requests.put(peer, newReplicaIP)
-        if response.status_code in [200, 201]:
+        if response.status_code not in [200, 201]:
           newRetry.append(peer)
       retry = newRetry
       sleep(1)
@@ -173,7 +174,7 @@ def deleteView():
       newRetry = []
       for peer in retry:
         response = requests.delete(peer, json=targetReplicaIP)
-        if response.status_code != 200:
+        if response.status_code not in [200, 201]:
           newRetry.append(peer)
       newRetry = retry
       sleep(1)
