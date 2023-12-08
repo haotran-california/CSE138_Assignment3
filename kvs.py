@@ -185,12 +185,22 @@ def deleteView():
   return jsonify({"result": "deleted"}), 200
 
 ############### KVS ##############
+# def maxOutClock(vectorClockA, vectorClockB):
+#   if len(vectorClockA) < len(vectorClockB):
+#     vectorClockA += [0] * (len(vectorClockB) - len(vectorClockA))
+#   elif len(vectorClockB) < len(vectorClockA):
+#     vectorClockB += [0] * len(vectorClockB)
+#   return max(vectorClockA, vectorClockB)
+
 def maxOutClock(vectorClockA, vectorClockB):
-  if len(vectorClockA) < len(vectorClockB):
-    vectorClockA += [0] * (len(vectorClockB) - len(vectorClockA))
-  elif len(vectorClockB) < len(vectorClockA):
-    vectorClockB += [0] * len(vectorClockB)
-  return max(vectorClockA, vectorClockB)
+    # Ensure both clocks are of equal length
+    maxLength = max(len(vectorClockA), len(vectorClockB))
+    vectorClockA += [0] * (maxLength - len(vectorClockA))
+    vectorClockB += [0] * (maxLength - len(vectorClockB))
+
+    # Create a new vector clock with the max of each corresponding element
+    maxClock = [max(a, b) for a, b in zip(vectorClockA, vectorClockB)]
+    return maxClock
 
 @app.route('/kvs/<key>', methods=['PUT'])
 def putKvs(key: str):
