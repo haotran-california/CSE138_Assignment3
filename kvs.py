@@ -6,10 +6,7 @@ import json
 from typing import Dict, Any
 from colorama import Fore, Back, Style
 
-FORWARDING_ADDRESS = os.getenv("FORWARDING_ADDRESS")
-FORWARD_URL = ""
 app = Flask(__name__)
-#kvs = dict(test1=2, test2=3)
 kvs = dict()
 peers = []
 vectorClock = [0]
@@ -22,34 +19,6 @@ red = Fore.RED
 white = Fore.WHITE
 
 ############### VIEW ##############
-"""
-Sends the following fields to a ip with the method 'INITPACKAGE':
-  senderIP: str
-  uniqueID: str
-  nextUniqueID: str
-  vectorClocK: [int]
-  kvs: dict
-"""
-def sendInit(newReplicaIP: str, nextUniqueId: int, vectorClock: [int], keyStore):
-  print(blue + 'Replica doing sendInit...' + white)
-  print('serialize:', json.dumps(keyStore))
-  payload = {
-    'uniqueID': str(nextUniqueId),
-    'nextUniqueID': str(nextUniqueId + 1),
-    'vectorClock': json.dumps(vectorClock),
-    'keyStore': json.dumps(keyStore),
-  }
-
-  response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
-  # temporarily make newReplicaIP self ip for testing
-  #response = requests.request('INITPACKAGE', 'http://10.0.0.242:8090/', json=payload)
-  
-  while response.status_code not in [200, 201]:
-    response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
-    sleep(1)
-
-  print(green + 'Replica finished sendInit\n' + white)
-  return
 
 """
 Received the method INITPACKAGE and sets current fields to received values
@@ -63,27 +32,16 @@ def initSelf():
   nextUID = int(payload.get('nextUniqueID'))
   vectorClock = json.loads(payload.get('vectorClock'))
   kvs = json.loads(payload.get('keyStore'))
+  peers = json.loads(payload.get('peers'))
   peers.append('http://' + request.remote_addr + ':8090/')
   print(green + 'Replica finished INITPACKAGE' + white)
   return jsonify({"result": "success"}), 200
-
-"""
-Helper function that prints out global variables
-"""
-def checkglobals():
-  global uniqueID, nextUID, vectorClock, kvs
-  print(blue + "Starting globals check" + white)
-  print("uniqueID:", uniqueID)
-  print("nextUID:", nextUID)
-  print("vectorClock:", vectorClock)
-  print("kvs:", kvs)
-  print(blue + "Globals check finished" + white)
 
 """Returns jsonified peers"""
 @app.route('/view', methods=['GET'])
 def getView():
   print(green + 'Replica did getView()')
-  return jsonify({"view:": peers}), 200
+  return jsonify({"view": peers}), 200
 
 @app.route('/view', methods=['PUT'])
 def putView():
@@ -109,6 +67,7 @@ def putView():
       'nextUniqueID': str(nextUID + 1),
       'vectorClock': str(vectorClock),
       'keyStore': json.dumps(kvs),
+      'peers': str(peers),
     }
     response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
     while response.status_code != 200:
@@ -117,7 +76,7 @@ def putView():
       response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
     
     for peer in peers:
-      response = requests.put(peer, json={'socket-address': senderIP})
+      response = requests.put(peer, json={'socket-address': newReplicaIP})
       if response.status_code not in [200, 201]:
         retry.append(peer)
       
@@ -185,22 +144,12 @@ def deleteView():
   return jsonify({"result": "deleted"}), 200
 
 ############### KVS ##############
-# def maxOutClock(vectorClockA, vectorClockB):
-#   if len(vectorClockA) < len(vectorClockB):
-#     vectorClockA += [0] * (len(vectorClockB) - len(vectorClockA))
-#   elif len(vectorClockB) < len(vectorClockA):
-#     vectorClockB += [0] * len(vectorClockB)
-#   return max(vectorClockA, vectorClockB)
-
 def maxOutClock(vectorClockA, vectorClockB):
-    # Ensure both clocks are of equal length
-    maxLength = max(len(vectorClockA), len(vectorClockB))
-    vectorClockA += [0] * (maxLength - len(vectorClockA))
-    vectorClockB += [0] * (maxLength - len(vectorClockB))
-
-    # Create a new vector clock with the max of each corresponding element
-    maxClock = [max(a, b) for a, b in zip(vectorClockA, vectorClockB)]
-    return maxClock
+  if len(vectorClockA) < len(vectorClockB):
+    vectorClockA += [0] * (len(vectorClockB) - len(vectorClockA))
+  elif len(vectorClockB) < len(vectorClockA):
+    vectorClockB += [0] * len(vectorClockB)
+  return max(vectorClockA, vectorClockB)
 
 @app.route('/kvs/<key>', methods=['PUT'])
 def putKvs(key: str):
