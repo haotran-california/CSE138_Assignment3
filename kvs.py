@@ -8,7 +8,7 @@ from colorama import Fore, Back, Style
 
 app = Flask(__name__)
 kvs = dict()
-peers = []
+peers = os.environ.get('VIEW', []).split(',')
 vectorClock = [0]
 uniqueID = 0
 nextUID = 1
@@ -23,7 +23,7 @@ white = Fore.WHITE
 """
 Received the method INITPACKAGE and sets current fields to received values
 """
-@app.route('/', methods=['INITPACKAGE'])
+@app.route('/init', methods=['PUT'])
 def initSelf():
   print(blue + 'Replica doing INITPACKAGE...' + white)
   global uniqueID, nextUID, vectorClock, kvs
@@ -33,7 +33,7 @@ def initSelf():
   vectorClock = json.loads(payload.get('vectorClock'))
   kvs = json.loads(payload.get('keyStore'))
   peers = json.loads(payload.get('peers'))
-  peers.append('http://' + request.remote_addr + ':8090/')
+  peers.append('http://' + str(request.remote_addr) + +':'+ str(request.environ.get('REMOTE_PORT')))
   print(green + 'Replica finished INITPACKAGE' + white)
   return jsonify({"result": "success"}), 200
 
@@ -49,7 +49,7 @@ def putView():
 
   global kvs, nextUID, vectorClock
   
-  senderIP = 'http://' + request.remote_addr + ':8090/'
+  senderIP = 'http://' + request.remote_addr +':'+ request.environ.get('REMOTE_PORT')
   payload = request.get_json()
   newReplicaIP = payload.get('socket-address')
 
@@ -69,14 +69,14 @@ def putView():
       'keyStore': json.dumps(kvs),
       'peers': str(peers),
     }
-    response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
+    response = requests.put('http://'+newReplicaIP+'/init', json=jsonify(payload))
     while response.status_code != 200:
       print("NO RESPONSE REPLY AFTER INITPACKAGE RECEIVED")
       sleep(1)
-      response = requests.request('INITPACKAGE', newReplicaIP, json=jsonify(payload))
+      response = requests.requests.put('http://'+newReplicaIP+'/init', json=jsonify(payload))
     
     for peer in peers:
-      response = requests.put(peer, json={'socket-address': newReplicaIP})
+      response = requests.put(peer+'/view', json={'socket-address': newReplicaIP})
       if response.status_code not in [200, 201]:
         retry.append(peer)
       
@@ -84,7 +84,7 @@ def putView():
       print(red + "FAILED TO GET REPLY AFTER RETRY" + white)
       newRetry = []
       for peer in retry:
-        response = requests.put(peer, newReplicaIP)
+        response = requests.put(peer+'/view', json={'socket-address': newReplicaIP})
         if response.status_code not in [200, 201]:
           newRetry.append(peer)
       retry = newRetry

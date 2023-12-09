@@ -225,6 +225,7 @@ class TestHW3(unittest.TestCase):
             response = requests.get('http://{}:{}/view'.format(hostname, replica.host_port))
             self.assertEqual(response.status_code, 200, msg='at replica, {}'.format(replica))
             self.assertIn('view', response.json(), msg='at replica, {}'.format(replica))
+            print(response.json())
             self.assertEqual(set(response.json()['view']), viewSet(all_replicas), msg='at replica, {}'.format(replica))
 
 
